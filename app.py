@@ -3,7 +3,7 @@ from streamlit_option_menu import option_menu
 from resume import resume_analyzer
 from assistant import main_app
 import os
-
+from dotenv import load_dotenv
 # Set page config
 st.set_page_config(
     page_title="Career Path Oracle 🧙‍♂️",
@@ -449,4 +449,5 @@ def main():
         st.info("Please refresh the page or contact support if the issue persists.")
 
 if __name__ == "__main__":
+
     main()
