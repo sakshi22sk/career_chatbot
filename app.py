@@ -4,6 +4,10 @@ from resume import resume_analyzer
 from assistant import main_app
 import os
 from dotenv import load_dotenv
+
+# Load .env file values into environment
+load_dotenv()
+
 # Set page config
 st.set_page_config(
     page_title="Career Path Oracle 🧙‍♂️",
@@ -451,3 +455,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
