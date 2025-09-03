@@ -2,6 +2,7 @@
 # 🎯 AI Career Path Assistant
 
 🔗 [Live Demo on Streamlit](https://careerchatbot-sakshi-qfaugaqzowz6ar5ew7epnd.streamlit.app/)
+<b> 📓 I HAVE ADDED FEW RESUME TEMPLATES FOR TESTING </b>
 
 An AI-powered career guidance assistant that helps users analyze their resumes, identify skill gaps, and explore personalized career paths.  
 Built with **Streamlit** and **Google Gemini API**, this project combines interactive UI with advanced AI capabilities to provide actionable insights for students and professionals.
