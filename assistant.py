@@ -280,10 +280,11 @@ Provide a helpful answer.
                             "data": steps
                         })
 
-               except Exception as e:
+                except Exception as e:
 
-                        st.error(e)
-                    st.markdown(error)
+                    error = f"Sorry, something went wrong: {e}"
+
+                    st.error(error)
 
                     st.session_state.chat_history.append({
                         "role": "assistant",
