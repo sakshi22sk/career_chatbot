@@ -11,8 +11,11 @@ load_dotenv()
 # -------------------------
 # Configure Gemini
 # -------------------------
+GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    st.error("Gemini API key not found!")
+    st.stop()
 
 genai.configure(api_key=GEMINI_API_KEY)
 
@@ -113,35 +116,27 @@ def should_generate_flowchart(query):
 # -------------------------
 # Detect Field
 # -------------------------
-
 def detect_field(query):
-
-    prompt = f"""
-Identify the career field from this query.
-
-Query: {query}
-
-Return ONLY the field name.
-
-Example:
-Data Science
-Web Development
-Cybersecurity
-Product Management
-"""
-
     try:
+        prompt = f"""
+        Identify the career field from this query.
+
+        Query: {query}
+
+        Return only the field name.
+        """
 
         response = model.generate_content(prompt)
 
         field = response.text.strip().split("\n")[0]
 
+        if len(field) > 40:
+            return "Career"
+
         return field
 
     except:
-
         return "Career"
-
 
 # -------------------------
 # Generate Roadmap Steps
@@ -285,10 +280,9 @@ Provide a helpful answer.
                             "data": steps
                         })
 
-                except Exception as e:
+               except Exception as e:
 
-                    error = "Sorry, something went wrong. Please try again."
-
+                        st.error(e)
                     st.markdown(error)
 
                     st.session_state.chat_history.append({
