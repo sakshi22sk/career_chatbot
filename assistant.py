@@ -24,9 +24,8 @@ generation_config = genai.types.GenerationConfig(
     top_p=0.9,
     max_output_tokens=800
 )
-
 model = genai.GenerativeModel(
-    "gemini-1.5-flash-latest",
+    "gemini-1.5-flash",
     generation_config=generation_config
 )
 
