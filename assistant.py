@@ -1,267 +1,174 @@
 import streamlit as st
 import google.generativeai as genai
 import graphviz
-import re
+import os
+from dotenv import load_dotenv
 import time
-
-# =========================================
-# PUT YOUR GEMINI API KEY HERE
-# =========================================
-
-GEMINI_API_KEY = "AIzaSyC9cNEuE8TNpOwWRtPp7j8BjKSdnpJb42g"
-
-genai.configure(api_key=GEMINI_API_KEY)
-
-# =========================================
-# MODEL CONFIG
-# =========================================
-
-generation_config = genai.types.GenerationConfig(
-    temperature=0.7,
-    top_p=0.9,
-    max_output_tokens=2000
-)
-
-model = genai.GenerativeModel(
-    "models/gemini-1.5-flash-latest",
-    generation_config=generation_config
-)
-
-# =========================================
-# FLOWCHART RENDER
-# =========================================
+import re
+# Load environment variables
+load_dotenv()
 
 def render_enhanced_flowchart(steps):
+        dot = graphviz.Digraph(format='png', engine='dot')
 
-    dot = graphviz.Digraph()
+        # Loop through the steps and assign rectangular shapes and fill colors
+        for idx, step in enumerate(steps):
+            dot.node(f"step{idx}", step, shape='rectangle', style='filled', fillcolor="#4e5a75", fontcolor="white", width="2")
 
-    dot.attr(rankdir="TB")
+            # Create edges between nodes if it's not the first node
+            if idx > 0:
+                dot.edge(f"step{idx-1}", f"step{idx}")
 
-    colors = [
-        "#FF6B6B",
-        "#4ECDC4",
-        "#45B7D1",
-        "#96CEB4",
-        "#FECA57",
-        "#FF9FF3",
-        "#54A0FF"
-    ]
+        # Render the flowchart in Streamlit
+        st.graphviz_chart(dot)
 
-    for i, step in enumerate(steps):
+def main_app():     
+    # Configure Gemini API
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "your-gemini-api-key")
+    genai.configure(api_key=GEMINI_API_KEY)
 
-        clean = re.sub(r'^\d+\.?\s*', '', step)
+    # Define generation config
+    generation_config = genai.types.GenerationConfig(
+        temperature=0.7,
+        top_p=0.9,
+        max_output_tokens=5000,
+    )
 
-        dot.node(
-            f"step{i}",
-            clean,
-            shape="rectangle",
-            style="filled,rounded",
-            fillcolor=colors[i % len(colors)],
-            fontcolor="white"
-        )
+    
+    def is_career_related_semantically(query):
+        classifier_model = genai.GenerativeModel("gemini-2.0-flash")
+        classification_prompt = f"""
+        You are an expert classifier. Your task is to analyze the user input below and determine whether it is asking for career guidance, planning, job preparation, learning roadmap, or role-specific advice.
 
-        if i > 0:
-            dot.edge(f"step{i-1}", f"step{i}")
+        A valid input may include things like:
+        - Planning a career in a specific field (e.g., "I want to become a data analyst. Help me plan.")
+        - Creating a roadmap or study plan to become something (e.g., "How to become a machine learning engineer?")
+        - Job search or resume advice
+        - Skills, courses, or certifications for a role
+        - Interview preparation, industry expectations, or portfolio suggestions
 
-    st.graphviz_chart(dot, use_container_width=True)
+        An invalid input is anything unrelated to careers, such as:
+        - Creative writing, storytelling, history, politics, general facts, entertainment, or casual conversation.
 
+        Now, evaluate the input below:
 
-# =========================================
-# GEMINI SAFE CALL
-# =========================================
+        "{query}"
 
-def generate_response(prompt):
+        Is this clearly a career-related request? Answer only with 'Yes' or 'No'.
+        """
 
-    try:
-
-        response = model.generate_content(prompt)
-
-        return response.text
-
-    except Exception:
-
-        time.sleep(40)
-
-        response = model.generate_content(prompt)
-
-        return response.text
+        result = classifier_model.generate_content(classification_prompt)
+        return result.text.strip().lower().startswith("yes")
 
 
-# =========================================
-# RESUME ANALYZER
-# =========================================
-
-def analyze_resume(resume_text):
-
-    prompt = f"""
-You are a professional resume reviewer.
-
-Analyze the following resume and provide:
-
-1. Strengths
-2. Weaknesses
-3. Missing Skills
-4. ATS Optimization Tips
-5. Suggested Improvements
-
-Resume:
-{resume_text}
-"""
-
-    return generate_response(prompt)
-
-
-# =========================================
-# EXTRACT ROADMAP STEPS
-# =========================================
-
-def extract_steps(text):
-
-    steps = []
-
-    for line in text.split("\n"):
-
-        if re.match(r"^\d+\.", line.strip()):
-
-            clean = re.sub(r'^\d+\.\s*', '', line)
-
-            steps.append(clean)
-
-    return steps[:10]
-
-
-# =========================================
-# MAIN APP
-# =========================================
-
-def main_app():
-
-    st.title("🚀 Career Path Oracle")
-
-    # SESSION MEMORY
+    # Session state
+    if "chat" not in st.session_state:
+        model = genai.GenerativeModel("gemini-2.0-flash", generation_config=generation_config)
+        st.session_state.chat = model.start_chat(history=[])
 
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # =====================================
-    # RESUME ANALYZER
-    # =====================================
-
-    st.sidebar.header("📄 Resume Analyzer")
-
-    uploaded_file = st.sidebar.file_uploader(
-        "Upload Resume (.txt)",
-        type=["txt"]
-    )
-
-    if uploaded_file:
-
-        resume_text = uploaded_file.read().decode("utf-8")
-
-        if st.sidebar.button("Analyze Resume"):
-
-            with st.spinner("Analyzing Resume..."):
-
-                result = analyze_resume(resume_text)
-
-                st.sidebar.markdown(result)
-
-    # =====================================
-    # SHOW CHAT HISTORY
-    # =====================================
-
+    # Display chat history
     for msg in st.session_state.chat_history:
-
         with st.chat_message(msg["role"]):
+            if msg.get("type") == "flowchart": render_enhanced_flowchart(msg["data"]) 
+            else:st.markdown(msg["text"], unsafe_allow_html=True)
 
-            if msg.get("type") == "flowchart":
 
-                render_enhanced_flowchart(msg["data"])
+    # Function to use Gemini to generate job roles dynamically
+    def get_job_roles_from_gemini(field):
+        prompt = f"Given the field of {field}, suggest a list of relevant job roles in this domain."
+        response = genai.GenerativeModel("gemini-2.0-flash").generate_content(prompt)
+        roles = response.text.strip()
 
-            else:
+        if not roles:
+            roles = "Career roles could not be determined. Please specify the field of interest."
 
-                st.markdown(msg["text"])
+        return roles
 
-    # =====================================
-    # USER INPUT
-    # =====================================
+    # Function to generate career roadmap using Gemini
+    def get_career_steps_from_gemini(career_field):
+        prompt = f"Generate a career roadmap for someone wanting to become a {career_field}. List 10 to 15 steps in chronological order. Keep the list clear and concise.Simply generate list nothing else means not any starting text or highlighting text"
+        
+        # Request Gemini to generate career steps
+        response = genai.GenerativeModel("gemini-2.0-flash").generate_content(prompt)
+        
+        steps = response.text.strip().split("\n")
+        return steps
 
-    prompt = st.chat_input("Ask about career guidance, roadmap, skills...")
-
+    # User input
+    prompt = st.chat_input("Ask anything about your career path...")
+        
     if prompt:
-
         with st.chat_message("user"):
             st.markdown(prompt)
-
-        st.session_state.chat_history.append({
-            "role": "user",
-            "text": prompt
-        })
+        st.session_state.chat_history.append({"role": "user", "text": prompt})
 
         with st.chat_message("assistant"):
-
             with st.spinner("Thinking..."):
+                full_text=""
+                if is_career_related_semantically(prompt):
+                    # Analyze the query to extract a field (using Gemini's assistance)
+                    field_identification_prompt = (
+                        f"Based on the user's query, determine the field they are referring to. "
+                        f"User query: \"{prompt}\". Provide only the carrer and job field, like 'Machine Learning', 'Data Science',Web development,AI, Cloud Computing, etc."
+                    )
 
-                assistant_prompt = f"""
-You are an expert career advisor.
-
-User Question:
-{prompt}
-
-Provide:
-
-1. Clear career advice
-2. Important skills to learn
-3. Relevant job roles
-4. Recommended courses
-5. A roadmap of 8-10 steps
-
-Write roadmap steps like this:
-
-1. Step one
-2. Step two
-3. Step three
-"""
-
-                text = generate_response(assistant_prompt)
-
-                placeholder = st.empty()
-
-                output = ""
-
-                words = text.split(" ")
-
-                for word in words:
-
-                    output += word + " "
-
-                    placeholder.markdown(output + "▌")
-
-                    time.sleep(0.003)
-
-                placeholder.markdown(output)
-
-                st.session_state.chat_history.append({
-                    "role": "assistant",
-                    "text": text
-                })
-
-                # =====================================
-                # FLOWCHART
-                # =====================================
-
-                steps = extract_steps(text)
-
-                if steps:
-
-                    render_enhanced_flowchart(steps)
-
-                    st.session_state.chat_history.append({
-                        "role": "assistant",
-                        "type": "flowchart",
-                        "data": steps
-                    })
+                    # field_response = st.session_state.chat.send_message(field_identification_prompt)
+                    field_response=genai.GenerativeModel("gemini-2.0-flash").generate_content(field_identification_prompt)
+                    field_of_interest = field_response.text.strip()
+                    modified_prompt=""
+                    steps=[]
+                    if field_of_interest:
+                        # Get job roles dynamically based on the field of interest
+                        job_roles = get_job_roles_from_gemini(field_of_interest)
+                        # Append the job roles suggestion to the prompt
+                        modified_prompt = (
+                        f"{prompt}\n\n"
+                        f"**And Relevant Job Roles in {field_of_interest}:**\n{job_roles}\n\n"
+                        f"**And suggest some online courses on various plateform such as on udemy and coursera on the topic of {field_of_interest} with examples coureses name"
+                        )
+                        steps = get_career_steps_from_gemini(field_of_interest)
 
 
-if __name__ == "__main__":
-    main_app()
+                    # response = st.session_state.chat.send_message(modified_prompt)
+                    response = genai.GenerativeModel("gemini-2.0-flash").generate_content(modified_prompt)
+                    full_text = response.text+"\n\nFlow Chart-"
+
+                    placeholder = st.empty()
+                    displayed_text = ""
+
+                    # Word-by-word streaming
+                    blocks = re.split(r"(?<=\n)\n+", full_text.strip())
+                    for block in blocks:
+                        block = block.strip()
+                        words = block.split(" ")
+                        for word in words:
+                            displayed_text += word + " "
+                            placeholder.markdown(displayed_text + "▌", unsafe_allow_html=True)
+                            time.sleep(0.01)
+                        displayed_text += "\n\n"
+                        placeholder.markdown(displayed_text + "▌", unsafe_allow_html=True)
+                        time.sleep(0.1)
+
+                    # Final output
+                    placeholder.markdown(displayed_text, unsafe_allow_html=True)
+
+                    # Flowchart
+                    if steps:
+                        render_enhanced_flowchart(steps)
+                    st.session_state.chat_history.append({"role": "assistant", "text": full_text})
+                    st.session_state.chat_history.append({ "role": "assistant", "type": "flowchart", "data": steps })
+                else:
+                    full_text = (
+                    "I'm here to assist you with career guidance, job preparation, learning roadmaps, "
+                    "and planning for your professional journey. If you have questions about how to enter "
+                    "a specific field, what skills to develop, or how to grow in your role — I’d be glad to help!\n\n"
+                    "However, this particular request doesn't seem related to career development, so I won’t be able to assist with it. "
+                    "Please feel free to ask me anything related to your career path."
+                    )
+                    st.markdown(full_text)
+                    st.session_state.chat_history.append({"role": "assistant", "text": full_text})
+        
+        
