@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # -------------------------
-# Configure Gemini
+# CONFIGURE GEMINI
 # -------------------------
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -23,11 +23,13 @@ genai.configure(api_key=GEMINI_API_KEY)
 generation_config = genai.types.GenerationConfig(
     temperature=0.7,
     top_p=0.9,
-    max_output_tokens=5000
+    max_output_tokens=2000
 )
 
+MODEL_NAME = "gemini-1.5-flash"
+
 model = genai.GenerativeModel(
-    "gemini-2.0-flash",
+    MODEL_NAME,
     generation_config=generation_config
 )
 
@@ -46,7 +48,25 @@ Always give practical and clear advice.
 """
 
 # -------------------------
-# FLOWCHART RENDERER
+# SAFE GEMINI CALL (RETRY)
+# -------------------------
+
+def safe_generate(prompt):
+
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+
+    except Exception:
+
+        time.sleep(50)
+
+        response = model.generate_content(prompt)
+        return response.text
+
+
+# -------------------------
+# FLOWCHART
 # -------------------------
 
 def render_enhanced_flowchart(steps):
@@ -87,31 +107,30 @@ def render_enhanced_flowchart(steps):
         )
 
     for i in range(len(processed) - 1):
-
         dot.edge(f"step{i}", f"step{i+1}")
 
     st.graphviz_chart(dot, use_container_width=True)
+
 
 # -------------------------
 # CAREER CLASSIFIER
 # -------------------------
 
-def is_career_related_semantically(query):
+def is_career_related(query):
 
-    classifier_model = genai.GenerativeModel("gemini-2.0-flash")
-
-    classification_prompt = f"""
-Determine whether the user query is related to career guidance.
+    prompt = f"""
+Determine if the query is related to career guidance.
 
 Query:
 {query}
 
-Answer only Yes or No.
+Answer Yes or No only.
 """
 
-    result = classifier_model.generate_content(classification_prompt)
+    result = safe_generate(prompt)
 
-    return result.text.lower().startswith("yes")
+    return result.lower().startswith("yes")
+
 
 # -------------------------
 # FIELD DETECTOR
@@ -119,60 +138,56 @@ Answer only Yes or No.
 
 def detect_field(query):
 
-    try:
-
-        prompt = f"""
+    prompt = f"""
 Identify the career field from this query.
 
-Query: {query}
+Query:
+{query}
 
 Return only the field name.
 """
 
-        response = model.generate_content(prompt)
+    result = safe_generate(prompt)
 
-        field = response.text.strip().split("\n")[0]
+    field = result.split("\n")[0]
 
-        if len(field) > 40:
-            return "Career"
-
-        return field
-
-    except:
+    if len(field) > 40:
         return "Career"
 
+    return field
+
+
 # -------------------------
-# JOB ROLES GENERATOR
+# JOB ROLES
 # -------------------------
 
-def get_job_roles_from_gemini(field):
+def get_job_roles(field):
 
     prompt = f"""
 List relevant job roles in the field of {field}.
-Only return the list.
+Return only a list.
 """
 
-    response = model.generate_content(prompt)
+    return safe_generate(prompt)
 
-    return response.text
 
 # -------------------------
-# ROADMAP GENERATOR
+# ROADMAP
 # -------------------------
 
-def generate_roadmap_steps(field):
+def generate_roadmap(field):
 
     prompt = f"""
 Create a step-by-step roadmap for becoming a {field}.
 
-Provide 10 steps.
+Provide 10 short steps.
 """
 
-    response = model.generate_content(prompt)
+    text = safe_generate(prompt)
 
     steps = []
 
-    for line in response.text.split("\n"):
+    for line in text.split("\n"):
 
         if line.strip():
 
@@ -182,33 +197,31 @@ Provide 10 steps.
 
     return steps[:10]
 
+
 # -------------------------
 # RESUME ANALYZER
 # -------------------------
 
-def analyze_resume(resume_text):
+def analyze_resume(resume):
 
     prompt = f"""
-You are an expert resume reviewer.
+You are a professional resume reviewer.
 
-Analyze the following resume.
+Analyze the resume below.
 
 Provide:
-
 1. Strengths
 2. Weaknesses
-3. Missing skills
-4. ATS optimization tips
-5. Suggested improvements
+3. Missing Skills
+4. ATS Optimization Tips
+5. Suggested Improvements
 
 Resume:
-
-{resume_text}
+{resume}
 """
 
-    response = model.generate_content(prompt)
+    return safe_generate(prompt)
 
-    return response.text
 
 # -------------------------
 # MAIN APP
@@ -218,8 +231,6 @@ def main_app():
 
     st.title("Career Path Oracle")
 
-    # SESSION STATE
-
     if "chat" not in st.session_state:
         st.session_state.chat = model.start_chat(history=[])
 
@@ -227,7 +238,7 @@ def main_app():
         st.session_state.chat_history = []
 
     # -------------------------
-    # RESUME ANALYZER UI
+    # RESUME ANALYZER SIDEBAR
     # -------------------------
 
     st.sidebar.header("Resume Analyzer")
@@ -242,14 +253,14 @@ def main_app():
 
         if st.sidebar.button("Analyze Resume"):
 
-            with st.spinner("Analyzing Resume..."):
+            with st.spinner("Analyzing resume..."):
 
                 result = analyze_resume(resume_text)
 
                 st.sidebar.markdown(result)
 
     # -------------------------
-    # CHAT HISTORY
+    # DISPLAY CHAT HISTORY
     # -------------------------
 
     for msg in st.session_state.chat_history:
@@ -257,11 +268,9 @@ def main_app():
         with st.chat_message(msg["role"]):
 
             if msg.get("type") == "flowchart":
-
                 render_enhanced_flowchart(msg["data"])
 
             else:
-
                 st.markdown(msg["text"], unsafe_allow_html=True)
 
     # -------------------------
@@ -284,10 +293,11 @@ def main_app():
 
             with st.spinner("Thinking..."):
 
-                if not is_career_related_semantically(prompt):
+                if not is_career_related(prompt):
 
                     text = """
-I'm here to help with career guidance, roadmaps, skills, jobs and professional growth.
+I'm here to assist with career guidance, job preparation,
+learning roadmaps, and professional growth.
 
 Please ask a career related question.
 """
@@ -303,28 +313,24 @@ Please ask a career related question.
 
                 field = detect_field(prompt)
 
-                job_roles = get_job_roles_from_gemini(field)
+                job_roles = get_job_roles(field)
 
                 final_prompt = f"""
 {SYSTEM_PROMPT}
 
-User question:
+User Question:
 {prompt}
 
-Career field:
+Career Field:
 {field}
 
-Relevant job roles:
+Relevant Job Roles:
 {job_roles}
 
-Provide a detailed answer.
+Provide a detailed answer with practical guidance.
 """
 
-                response = st.session_state.chat.send_message(final_prompt)
-
-                text = response.text
-
-                # Streaming Output
+                text = safe_generate(final_prompt)
 
                 placeholder = st.empty()
 
@@ -349,9 +355,9 @@ Provide a detailed answer.
 
                 # FLOWCHART
 
-                if any(x in prompt.lower() for x in ["roadmap","step","path","timeline"]):
+                if any(x in prompt.lower() for x in ["roadmap","steps","path","timeline"]):
 
-                    steps = generate_roadmap_steps(field)
+                    steps = generate_roadmap(field)
 
                     render_enhanced_flowchart(steps)
 
