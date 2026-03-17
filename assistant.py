@@ -11,7 +11,8 @@ load_dotenv()
 # -------------------------
 # Configure Gemini
 # -------------------------
-GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not GEMINI_API_KEY:
     st.error("Gemini API key not found!")
@@ -20,12 +21,13 @@ if not GEMINI_API_KEY:
 genai.configure(api_key=GEMINI_API_KEY)
 
 generation_config = genai.types.GenerationConfig(
-    temperature=0.6,
+    temperature=0.7,
     top_p=0.9,
-    max_output_tokens=800
+    max_output_tokens=5000
 )
+
 model = genai.GenerativeModel(
-    "models/gemini-pro",
+    "gemini-2.0-flash",
     generation_config=generation_config
 )
 
@@ -43,15 +45,13 @@ Your job is to:
 Always give practical and clear advice.
 """
 
-
 # -------------------------
-# Flowchart Renderer
+# FLOWCHART RENDERER
 # -------------------------
 
-def render_enhanced_flowchart(steps, title="Career Roadmap"):
+def render_enhanced_flowchart(steps):
 
     dot = graphviz.Digraph(format="png")
-
     dot.attr(rankdir="TB")
 
     colors = [
@@ -92,38 +92,42 @@ def render_enhanced_flowchart(steps, title="Career Roadmap"):
 
     st.graphviz_chart(dot, use_container_width=True)
 
+# -------------------------
+# CAREER CLASSIFIER
+# -------------------------
+
+def is_career_related_semantically(query):
+
+    classifier_model = genai.GenerativeModel("gemini-2.0-flash")
+
+    classification_prompt = f"""
+Determine whether the user query is related to career guidance.
+
+Query:
+{query}
+
+Answer only Yes or No.
+"""
+
+    result = classifier_model.generate_content(classification_prompt)
+
+    return result.text.lower().startswith("yes")
 
 # -------------------------
-# Flowchart Trigger
+# FIELD DETECTOR
 # -------------------------
 
-def should_generate_flowchart(query):
-
-    triggers = [
-        "roadmap",
-        "step by step",
-        "learning path",
-        "timeline",
-        "workflow"
-    ]
-
-    query = query.lower()
-
-    return any(t in query for t in triggers)
-
-
-# -------------------------
-# Detect Field
-# -------------------------
 def detect_field(query):
+
     try:
+
         prompt = f"""
-        Identify the career field from this query.
+Identify the career field from this query.
 
-        Query: {query}
+Query: {query}
 
-        Return only the field name.
-        """
+Return only the field name.
+"""
 
         response = model.generate_content(prompt)
 
@@ -138,7 +142,22 @@ def detect_field(query):
         return "Career"
 
 # -------------------------
-# Generate Roadmap Steps
+# JOB ROLES GENERATOR
+# -------------------------
+
+def get_job_roles_from_gemini(field):
+
+    prompt = f"""
+List relevant job roles in the field of {field}.
+Only return the list.
+"""
+
+    response = model.generate_content(prompt)
+
+    return response.text
+
+# -------------------------
+# ROADMAP GENERATOR
 # -------------------------
 
 def generate_roadmap_steps(field):
@@ -146,43 +165,60 @@ def generate_roadmap_steps(field):
     prompt = f"""
 Create a step-by-step roadmap for becoming a {field}.
 
-Provide 10 clear steps.
-Each step should be short.
+Provide 10 steps.
 """
 
-    try:
+    response = model.generate_content(prompt)
 
-        response = model.generate_content(prompt)
+    steps = []
 
-        text = response.text
+    for line in response.text.split("\n"):
 
-        steps = []
+        if line.strip():
 
-        for line in text.split("\n"):
+            clean = re.sub(r'^\d+\.?\s*', '', line).strip()
 
-            if line.strip():
+            steps.append(clean)
 
-                clean = re.sub(r'^\d+\.?\s*', '', line).strip()
-
-                steps.append(clean)
-
-        return steps[:10]
-
-    except:
-
-        return [
-            "Learn fundamentals",
-            "Practice projects",
-            "Build portfolio",
-            "Apply for jobs"
-        ]
-
+    return steps[:10]
 
 # -------------------------
-# Main App
+# RESUME ANALYZER
+# -------------------------
+
+def analyze_resume(resume_text):
+
+    prompt = f"""
+You are an expert resume reviewer.
+
+Analyze the following resume.
+
+Provide:
+
+1. Strengths
+2. Weaknesses
+3. Missing skills
+4. ATS optimization tips
+5. Suggested improvements
+
+Resume:
+
+{resume_text}
+"""
+
+    response = model.generate_content(prompt)
+
+    return response.text
+
+# -------------------------
+# MAIN APP
 # -------------------------
 
 def main_app():
+
+    st.title("Career Path Oracle")
+
+    # SESSION STATE
 
     if "chat" not in st.session_state:
         st.session_state.chat = model.start_chat(history=[])
@@ -190,7 +226,31 @@ def main_app():
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # Display chat history
+    # -------------------------
+    # RESUME ANALYZER UI
+    # -------------------------
+
+    st.sidebar.header("Resume Analyzer")
+
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload Resume (TXT)", type=["txt"]
+    )
+
+    if uploaded_file:
+
+        resume_text = uploaded_file.read().decode("utf-8")
+
+        if st.sidebar.button("Analyze Resume"):
+
+            with st.spinner("Analyzing Resume..."):
+
+                result = analyze_resume(resume_text)
+
+                st.sidebar.markdown(result)
+
+    # -------------------------
+    # CHAT HISTORY
+    # -------------------------
 
     for msg in st.session_state.chat_history:
 
@@ -204,13 +264,13 @@ def main_app():
 
                 st.markdown(msg["text"], unsafe_allow_html=True)
 
-    # Input box
+    # -------------------------
+    # USER INPUT
+    # -------------------------
 
-    prompt = st.chat_input("Ask anything about your career...")
+    prompt = st.chat_input("Ask anything about your career path...")
 
     if prompt:
-
-        # Show user message
 
         with st.chat_message("user"):
             st.markdown(prompt)
@@ -224,11 +284,28 @@ def main_app():
 
             with st.spinner("Thinking..."):
 
-                try:
+                if not is_career_related_semantically(prompt):
 
-                    field = detect_field(prompt)
+                    text = """
+I'm here to help with career guidance, roadmaps, skills, jobs and professional growth.
 
-                    final_prompt = f"""
+Please ask a career related question.
+"""
+
+                    st.markdown(text)
+
+                    st.session_state.chat_history.append({
+                        "role": "assistant",
+                        "text": text
+                    })
+
+                    return
+
+                field = detect_field(prompt)
+
+                job_roles = get_job_roles_from_gemini(field)
+
+                final_prompt = f"""
 {SYSTEM_PROMPT}
 
 User question:
@@ -237,55 +314,53 @@ User question:
 Career field:
 {field}
 
-Provide a helpful answer.
+Relevant job roles:
+{job_roles}
+
+Provide a detailed answer.
 """
 
-                    response = st.session_state.chat.send_message(final_prompt)
+                response = st.session_state.chat.send_message(final_prompt)
 
-                    text = response.text
+                text = response.text
 
-                    placeholder = st.empty()
+                # Streaming Output
 
-                    output = ""
+                placeholder = st.empty()
 
-                    words = text.split(" ")
+                output = ""
 
-                    for word in words:
+                words = text.split(" ")
 
-                        output += word + " "
+                for word in words:
 
-                        placeholder.markdown(output + "▌")
+                    output += word + " "
 
-                        time.sleep(0.005)
+                    placeholder.markdown(output + "▌")
 
-                    placeholder.markdown(output)
+                    time.sleep(0.005)
 
-                    st.session_state.chat_history.append({
-                        "role": "assistant",
-                        "text": text
-                    })
+                placeholder.markdown(output)
 
-                    # Flowchart
+                st.session_state.chat_history.append({
+                    "role": "assistant",
+                    "text": text
+                })
 
-                    if should_generate_flowchart(prompt):
+                # FLOWCHART
 
-                        steps = generate_roadmap_steps(field)
+                if any(x in prompt.lower() for x in ["roadmap","step","path","timeline"]):
 
-                        render_enhanced_flowchart(steps)
+                    steps = generate_roadmap_steps(field)
 
-                        st.session_state.chat_history.append({
-                            "role": "assistant",
-                            "type": "flowchart",
-                            "data": steps
-                        })
-
-                except Exception as e:
-
-                    error = f"Sorry, something went wrong: {e}"
-
-                    st.error(error)
+                    render_enhanced_flowchart(steps)
 
                     st.session_state.chat_history.append({
                         "role": "assistant",
-                        "text": error
+                        "type": "flowchart",
+                        "data": steps
                     })
+
+
+if __name__ == "__main__":
+    main_app()
